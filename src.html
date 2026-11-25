@@ -1,0 +1,851 @@
+<title>흡연 시뮬레이터</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@300;400;500;600&family=Nanum+Myeongjo:wght@400;700;800&display=swap">
+<style>
+/* Layout: 어두운 진료실. 왼쪽 레일에서 인물과 시작 나이를 고르면, 오른쪽 계산서가 실시간으로 다시 쓰인다. 단일 다크 테마. */
+:root{
+  --bg:#0B0A0D; --bg2:#121016; --panel:#19161D; --panel2:#201C25;
+  --line:rgba(237,232,225,.09); --line2:rgba(237,232,225,.18);
+  --fg:#EDE8E1; --fg2:#CFC8C0; --muted:#A09AA5;
+  --ember:#FF6A2B; --ember2:#FFB36A; --ash:#6E6A70;
+  --health:#5FD0B8; --warn:#E8C25A; --lung-ok:#E58E96; --lung-tar:#241C17;
+  --display:"Nanum Myeongjo","Noto Serif KR",Georgia,serif;
+  --body:"IBM Plex Sans KR","Noto Sans KR",-apple-system,"Malgun Gothic",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  --r:14px; --sev:0; --lung:#E58E96;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--body);font-size:15px;line-height:1.6;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-block:0 64px;overflow-x:hidden;
+  background-image:radial-gradient(1200px 600px at 70% -10%,rgba(255,106,43,.10),transparent 60%),radial-gradient(800px 500px at 0% 20%,rgba(95,208,184,.05),transparent 60%);}
+a{color:inherit}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+button:focus-visible,input:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ember2);outline-offset:3px}
+.wrap{max-width:1140px;margin:0 auto}
+.eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ember2)}
+h1,h2,h3{font-family:var(--display);font-weight:800;letter-spacing:-.01em;text-wrap:balance;margin:0}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* ── top bar ── */
+.top{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:22px 0 8px;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:10px;font-family:var(--display);font-weight:700;font-size:17px}
+.brand i{display:inline-block;width:26px;height:6px;border-radius:3px;background:linear-gradient(90deg,var(--ember) 0 24%,#F4EEE2 24% 100%);box-shadow:0 0 10px rgba(255,106,43,.6)}
+.top .meta{font-family:var(--mono);font-size:12px;color:var(--muted)}
+
+/* ── hero: 시네마 스테이지 ── */
+.hero{position:relative;height:200vh;margin-left:calc(50% - 50vw);width:100vw}
+.stage{position:sticky;top:0;height:100vh;width:100%;overflow:hidden;background:#07060A}
+.stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.stage::before,.stage::after{content:"";position:absolute;left:0;right:0;height:6vh;background:#000;z-index:2}
+.stage::before{top:0}.stage::after{bottom:0}
+.cut{position:absolute;inset:0;background:#000;z-index:6;opacity:1;pointer-events:none;transition:opacity 1.6s ease .3s}
+.cut.flash{transition:none;opacity:1}
+.hud{position:absolute;z-index:3;font-family:var(--mono);font-size:11.5px;letter-spacing:.12em;color:rgba(237,232,225,.72);text-transform:uppercase}
+.hud.tl{top:calc(6vh + 18px);left:max(24px,env(safe-area-inset-left,0px));display:flex;gap:14px;align-items:center}
+.hud.tr{top:calc(6vh + 18px);right:max(24px,env(safe-area-inset-right,0px))}
+.rec i{display:inline-block;width:8px;height:8px;border-radius:50%;background:#FF3B30;margin-right:6px;animation:blink 1.2s steps(2) infinite;box-shadow:0 0 8px #FF3B30}
+@keyframes blink{to{opacity:0}}
+.count{position:absolute;z-index:3;right:max(24px,env(safe-area-inset-right,0px));bottom:calc(6vh + 56px);text-align:right;display:grid;gap:2px}
+.count .lab{font-family:var(--mono);font-size:11.5px;letter-spacing:.12em;color:rgba(237,232,225,.6)}
+.count .num{font-family:var(--display);font-weight:800;font-size:clamp(44px,7vw,96px);line-height:1;color:var(--ember2);letter-spacing:-.02em;text-shadow:0 0 40px rgba(255,106,43,.35)}
+.hero-txt{position:absolute;z-index:4;left:max(24px,env(safe-area-inset-left,0px));bottom:calc(6vh + 56px);max-width:640px;padding-right:16px}
+.hero h1{font-size:clamp(38px,6vw,80px);line-height:1.02;text-shadow:0 10px 40px rgba(0,0,0,.8)}
+.hero h1 .ln{display:block;transform:translateY(0);opacity:1;transition:opacity .7s cubic-bezier(.2,.7,.2,1),transform .7s cubic-bezier(.2,.7,.2,1)}
+.stage.intro h1 .ln{opacity:0;transform:translateY(24px)}
+.subs{position:absolute;z-index:4;left:0;right:0;bottom:calc(6vh + 14px);text-align:center;font-size:clamp(14px,1.6vw,19px);color:#F4EEE2;text-shadow:0 2px 8px #000,0 0 2px #000;font-weight:400;padding:0 24px}
+.subs span{display:inline-block;transition:opacity .35s}
+.subs span.swap{opacity:0}
+.scrollhint{position:absolute;z-index:4;left:50%;transform:translateX(-50%);bottom:calc(6vh + 44px);font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:rgba(237,232,225,.5);display:grid;justify-items:center;gap:6px;transition:opacity .4s}
+.scrollhint i{width:1px;height:28px;background:linear-gradient(var(--ember2),transparent);animation:drop 1.6s ease-in-out infinite}
+@keyframes drop{0%{transform:scaleY(0);transform-origin:top}50%{transform:scaleY(1);transform-origin:top}51%{transform-origin:bottom}100%{transform:scaleY(0);transform-origin:bottom}}
+.stage.scrolled .scrollhint{opacity:0}
+.grain{position:fixed;inset:-120px;pointer-events:none;z-index:50;opacity:.05;will-change:transform;animation:grain .6s steps(4) infinite}
+@keyframes grain{0%{transform:translate3d(0,0,0)}25%{transform:translate3d(60px,-40px,0)}50%{transform:translate3d(-30px,70px,0)}75%{transform:translate3d(40px,20px,0)}100%{transform:translate3d(-60px,-60px,0)}}
+.vignette{position:fixed;inset:0;pointer-events:none;z-index:49;background:radial-gradient(120% 90% at 50% 40%,transparent 55%,rgba(0,0,0,.55) 100%)}
+.scene-tag{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;color:var(--ember2);text-transform:uppercase;margin:34px 0 10px;display:flex;align-items:center;gap:12px}
+.scene-tag::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,var(--line2),transparent)}
+.pre{opacity:0;transform:translateY(28px) scale(.985)}
+.on{opacity:1;transform:none;transition:opacity .8s cubic-bezier(.2,.7,.2,1),transform .8s cubic-bezier(.2,.7,.2,1)}
+.hero h1 em{font-style:normal;color:var(--ember);text-shadow:0 0 30px rgba(255,106,43,.35)}
+.hero p{max-width:34em;color:var(--fg2);font-size:17px;font-weight:300;margin:22px 0 0}
+.hero .cta{display:inline-flex;align-items:center;gap:10px;margin-top:28px;padding:12px 18px;border:1px solid var(--line2);border-radius:999px;font-weight:500;transition:border-color .2s,background .2s}
+.hero .cta:hover{border-color:var(--ember2);background:rgba(255,106,43,.08)}
+.hero .cta svg{width:16px;height:16px}
+
+/* ── main grid ── */
+.main{display:grid;grid-template-columns:360px 1fr;gap:28px;margin-top:40px;align-items:start}
+.rail{position:sticky;top:16px;display:grid;gap:18px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r)}
+.card .hd{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:16px 18px 0}
+.card .hd h2{font-size:17px;font-weight:700}
+.card .hd .sub{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.card .bd{padding:14px 18px 18px}
+
+/* people */
+.people{display:grid;gap:8px}
+.person{display:grid;grid-template-columns:54px 1fr auto;gap:12px;align-items:center;padding:10px 12px;border-radius:12px;border:1px solid transparent;text-align:left;transition:background .2s,border-color .2s,transform .2s;width:100%}
+.person:hover{background:var(--panel2)}
+.person[aria-pressed="true"]{background:var(--panel2);border-color:var(--line2);box-shadow:inset 3px 0 0 var(--ember)}
+.person .av{width:54px;height:54px;border-radius:50%;overflow:hidden;background:var(--bg2);border:1px solid var(--line)}
+.person .av svg{width:100%;height:100%;display:block}
+.person .nm{display:block;font-weight:600;font-size:15px}
+.person .ds{display:block;font-size:12.5px;color:var(--muted);line-height:1.35;margin-top:2px}
+.person .dur{font-family:var(--mono);font-size:12px;padding:4px 9px;border-radius:999px;border:1px solid var(--line2);color:var(--fg2);white-space:nowrap}
+.person[aria-pressed="true"] .dur{background:var(--ember);border-color:var(--ember);color:#1a0b05;font-weight:500}
+
+/* age slider */
+.agebig{display:flex;align-items:baseline;gap:8px;margin:2px 0 6px}
+.agebig .num{font-size:56px;line-height:1;font-weight:500;color:var(--fg)}
+.agebig span{color:var(--muted)}
+.agebig .tag{margin-left:auto;font-family:var(--mono);font-size:11.5px;padding:4px 9px;border-radius:999px;border:1px solid var(--line2);color:var(--warn)}
+.agebig .tag.ok{color:var(--health)}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:28px;background:transparent;margin:0}
+input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:linear-gradient(90deg,var(--ember) var(--pct,30%),var(--line2) var(--pct,30%))}
+input[type=range]::-moz-range-track{height:4px;border-radius:2px;background:var(--line2)}
+input[type=range]::-moz-range-progress{height:4px;border-radius:2px;background:var(--ember)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:#FBF7EE;border:3px solid var(--ember);margin-top:-9px;box-shadow:0 2px 10px rgba(0,0,0,.5);cursor:grab}
+input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:#FBF7EE;border:3px solid var(--ember);cursor:grab}
+.ticks{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:-4px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.chip{font-family:var(--mono);font-size:12px;padding:6px 11px;border-radius:999px;border:1px solid var(--line);color:var(--fg2);transition:.15s}
+.chip:hover{border-color:var(--line2)}
+.chip[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.stepper{display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px;margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
+.stepper label{font-size:13px;color:var(--fg2)}
+.stepper label small{display:block;color:var(--muted);font-size:11.5px}
+.stepper .ctl{display:inline-flex;align-items:center;border:1px solid var(--line2);border-radius:999px;overflow:hidden}
+.stepper .ctl button{width:34px;height:32px;font-size:18px;line-height:1;color:var(--fg2)}
+.stepper .ctl button:hover{background:var(--panel2)}
+.stepper .ctl .num{min-width:3.2em;text-align:center;font-size:14px}
+
+/* ── dashboard ── */
+.dash{display:grid;gap:18px}
+.sheet{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.sheet-hd{display:grid;grid-template-columns:auto 1fr auto;gap:18px;align-items:center;padding:20px 22px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,var(--panel2),var(--panel))}
+.sheet-hd .bigav{width:84px;height:84px;border-radius:50%;overflow:hidden;background:var(--bg2);border:1px solid var(--line2);flex:none}
+.sheet-hd .bigav svg{width:100%;height:100%;display:block}
+.sheet-hd h2{font-size:26px;line-height:1.15}
+.sheet-hd h2 small{display:block;font-family:var(--body);font-weight:400;font-size:13.5px;color:var(--muted);margin-top:4px;letter-spacing:0}
+.sheet-hd .pills{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.pill{font-family:var(--mono);font-size:11.5px;padding:4px 9px;border-radius:999px;border:1px solid var(--line2);color:var(--fg2)}
+.pill.hot{border-color:rgba(255,106,43,.5);color:var(--ember2);background:rgba(255,106,43,.08)}
+.pill.warn{border-color:rgba(232,194,90,.5);color:var(--warn)}
+.pill.ok{border-color:rgba(95,208,184,.5);color:var(--health)}
+.gauge{width:92px;text-align:center}
+.gauge svg{width:92px;height:92px;display:block}
+.gauge .lab{font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--muted);margin-top:-4px}
+.gauge .val{font-weight:600;font-size:13px;margin-top:-2px}
+
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border-bottom:1px solid var(--line)}
+.tile{padding:18px 20px;min-width:0;background:var(--panel)}
+.tile .k{font-size:12.5px;color:var(--muted);display:flex;justify-content:space-between;gap:6px}
+.tile .v{font-family:var(--mono);font-size:clamp(18px,1.9vw,26px);font-weight:500;line-height:1.1;margin-top:6px;letter-spacing:-.02em;white-space:nowrap}
+.tile .v small{font-size:.55em;color:var(--fg2);margin-left:2px;font-weight:400}
+.tile .s{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.4}
+.tile.hot .v{color:var(--ember2)}
+
+.body2{display:grid;grid-template-columns:300px 1fr;gap:0}
+.figure{position:relative;border-right:1px solid var(--line);padding:0;display:grid;place-items:center;min-height:380px;background:#0A090D}
+.figure canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.figure .cap{position:absolute;left:16px;top:14px;font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--muted);text-transform:uppercase}
+.figure .lungkey{position:absolute;left:16px;bottom:14px;right:16px;display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;color:var(--muted)}
+.figure .lungkey i{flex:1;height:5px;border-radius:3px;background:linear-gradient(90deg,var(--lung-ok),var(--lung-tar))}
+.changes{padding:18px 22px}
+.changes h3{font-size:15.5px;font-weight:700;margin-bottom:12px}
+.changes h3 span{display:block;color:var(--muted);font-family:var(--body);font-weight:400;font-size:13px;margin-top:2px}
+.tl{list-style:none;margin:0;padding:0;display:grid;gap:0;position:relative}
+.tl::before{content:"";position:absolute;left:6px;top:10px;bottom:10px;width:1px;background:var(--line2)}
+.tl li{display:grid;grid-template-columns:14px 72px 1fr;gap:12px;padding:9px 0;align-items:start;opacity:0;transform:translateY(6px);animation:rise .5s ease forwards}
+.tl li:nth-child(1){animation-delay:.05s}.tl li:nth-child(2){animation-delay:.15s}.tl li:nth-child(3){animation-delay:.25s}.tl li:nth-child(4){animation-delay:.35s}.tl li:nth-child(5){animation-delay:.45s}
+@keyframes rise{to{opacity:1;transform:none}}
+.tl .dot{width:13px;height:13px;border-radius:50%;border:2px solid var(--ember);background:var(--panel);margin-top:5px;box-shadow:0 0 0 3px var(--panel)}
+.tl .t{font-family:var(--mono);font-size:12px;color:var(--ember2);padding-top:3px}
+.tl .d{font-size:14px;color:var(--fg2);line-height:1.5}
+.tl .d b{color:var(--fg);font-weight:600}
+
+/* projection + quit */
+.duo{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.proj .bd,.quit .bd{padding:14px 20px 20px}
+.pilewrap{position:relative;height:200px;margin:12px 0 0;background:#0A090D;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.pilewrap canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.pilekey{position:absolute;left:14px;bottom:10px;font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--muted)}
+.pilenum{position:absolute;right:14px;top:10px;font-size:22px;font-weight:500;color:var(--ember2)}
+.bars{display:grid;gap:14px;margin-top:6px}
+.bar{display:grid;grid-template-columns:96px 1fr auto;gap:12px;align-items:center;font-size:13px}
+.bar .lab{color:var(--muted)}
+.bar .trk{height:10px;border-radius:5px;background:var(--bg2);overflow:hidden;position:relative}
+.bar .fill{height:100%;width:100%;border-radius:5px;background:linear-gradient(90deg,var(--ash),var(--ember));transform:scaleX(0);transform-origin:left;transition:transform .9s cubic-bezier(.2,.8,.2,1)}
+.bar .fill.now{background:linear-gradient(90deg,#8A6A4E,var(--ember2))}
+.bar .v{font-family:var(--mono);font-size:13px;white-space:nowrap}
+.legend{display:flex;gap:14px;font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:12px}
+.legend i{display:inline-block;width:14px;height:6px;border-radius:3px;vertical-align:middle;margin-right:5px}
+.quit .big{display:flex;align-items:baseline;gap:8px;margin-top:4px}
+.quit .big .num{font-size:52px;line-height:1;color:var(--health);font-weight:500}
+.quit .big span{color:var(--fg2)}
+.quit p{margin:8px 0 0;color:var(--fg2);font-size:13.5px;line-height:1.55}
+.quit p b{color:var(--fg)}
+.equiv{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}
+.eq{background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:0}
+.eq .n{font-family:var(--mono);font-size:20px;font-weight:500}
+.eq .n small{font-size:12px;color:var(--fg2);margin-left:2px}
+.eq .l{font-size:12px;color:var(--muted);margin-top:2px}
+
+/* recovery */
+.recov .bd{padding:10px 20px 22px}
+.steps{display:grid;grid-template-columns:repeat(8,1fr);gap:0;position:relative;margin-top:14px}
+.steps::before{content:"";position:absolute;left:6%;right:6%;top:9px;height:2px;background:linear-gradient(90deg,var(--ember),var(--health))}
+.step{text-align:center;padding:0 4px;min-width:0}
+.step .o{width:20px;height:20px;border-radius:50%;margin:0 auto;background:var(--panel);border:2px solid var(--health);position:relative;animation:pulse 2.6s ease-in-out infinite}
+.step:nth-child(odd) .o{animation-delay:.6s}
+.step .o::after{content:"";position:absolute;inset:-6px;border-radius:50%;background:rgba(95,208,184,.18);opacity:0;animation:inherit}
+.step .o{animation:none}.step .o::after{animation:pulse 2.6s ease-in-out infinite}.step:nth-child(odd) .o::after{animation-delay:.6s}
+@keyframes pulse{0%,100%{opacity:0;transform:scale(.7)}50%{opacity:1;transform:scale(1)}}
+.step .t{font-family:var(--mono);font-size:12px;color:var(--health);margin-top:10px;font-weight:500}
+.step .d{font-size:12px;color:var(--fg2);line-height:1.4;margin-top:4px}
+
+/* footer */
+.foot{margin-top:40px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:12.5px;line-height:1.7}
+.foot h4{margin:0 0 6px;font-family:var(--mono);font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--fg2);font-weight:500}
+.foot ol{margin:0;padding-left:18px}
+
+.fade{animation:fadein .45s ease}
+@keyframes fadein{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+@media (max-width:980px){
+  .main{grid-template-columns:1fr}
+  .rail{position:static}
+  .hero{height:170vh}
+  .count{bottom:auto;top:calc(6vh + 48px);right:max(16px,env(safe-area-inset-right,0px))}
+  .hero-txt{left:max(16px,env(safe-area-inset-left,0px));bottom:calc(6vh + 64px)}
+  .hero p{font-size:15px}
+  .scrollhint{display:none}
+  .body2{grid-template-columns:1fr}
+  .figure{border-right:0;border-bottom:1px solid var(--line)}
+  .duo{grid-template-columns:1fr}
+  .steps{grid-template-columns:repeat(4,1fr);gap:18px 0}
+  .steps::before{display:none}
+}
+@media (max-width:520px){
+  .sheet-hd{grid-template-columns:auto 1fr}
+  .sheet-hd .gauge{grid-column:1/-1;width:auto;display:flex;align-items:center;gap:12px;justify-content:flex-start}
+  .gauge svg{width:64px;height:64px}
+  .equiv{grid-template-columns:1fr 1fr}
+  .steps{grid-template-columns:repeat(2,1fr)}
+  .bar{grid-template-columns:72px 1fr auto}
+}
+@media (max-width:980px){ .figure{min-height:320px} }
+@media (prefers-reduced-motion:reduce){
+  .grain{animation:none}
+  *,*::before,*::after{animation-duration:.001s!important;animation-iteration-count:1!important;transition-duration:.001s!important}
+  .tl li{opacity:1;transform:none}
+}
+</style>
+
+<div class="grain" aria-hidden="true"></div>
+<div class="vignette" aria-hidden="true"></div>
+<div class="wrap">
+  <header class="top">
+    <div class="brand"><i aria-hidden="true"></i>흡연 시뮬레이터</div>
+    <div class="meta">금연 캠페인 · 인터랙티브 계산서</div>
+  </header>
+
+  <section class="hero" id="hero">
+    <div class="stage" id="stageWrap">
+      <canvas id="stage" aria-hidden="true"></canvas>
+      <div class="cut" id="cut" aria-hidden="true"></div>
+      <div class="hud tl" aria-hidden="true"><span class="rec"><i></i>REC</span><span id="tc">00:00:00:00</span></div>
+      <div class="hud tr" aria-hidden="true">SCENE 01 · 한 개비</div>
+      <div class="count" aria-hidden="true"><span class="lab">이 한 개비가 가져가는 시간</span><span class="num" id="count">20:00</span></div>
+      <div class="hero-txt">
+        <h1><span class="ln">담배 한 개비는</span><span class="ln">인생에서 <em>20분</em>을</span><span class="ln">빌려 갑니다.</span></h1>
+        <p id="heroP">갚을 수 없는 대출입니다. 세 사람 중 한 명을 고르고, 그 사람이 몇 살에 첫 담배를 물었는지 정해 보세요.</p>
+        <a class="cta" href="#sim">계산서 보기 <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2v11M3.5 8.5 8 13l4.5-4.5"/></svg></a>
+      </div>
+      <div class="subs" aria-hidden="true"><span id="sub">실제로는 약 7분이면 다 탑니다.</span></div>
+      <div class="scrollhint" aria-hidden="true"><i></i>스크롤</div>
+    </div>
+  </section>
+
+  <div class="main" id="sim">
+    <aside class="rail">
+      <div class="card">
+        <div class="hd"><h2>누구의 계산서를 볼까요?</h2><span class="sub">3명 중 선택</span></div>
+        <div class="bd people" id="people"></div>
+      </div>
+      <div class="card">
+        <div class="hd"><h2>첫 담배를 몇 살에?</h2><span class="sub" id="ageSub">시작 나이</span></div>
+        <div class="bd">
+          <div class="agebig"><span class="num" id="ageNum">17</span><span>세에 시작</span><span class="tag" id="ageTag">미성년 시작</span></div>
+          <input type="range" id="age" min="12" max="45" value="17" step="1" aria-label="첫 담배를 피운 나이">
+          <div class="ticks"><span>12</span><span>20</span><span>30</span><span>45</span></div>
+          <div class="chips" id="chips">
+            <button class="chip" data-age="15">15세 · 중학생</button>
+            <button class="chip" data-age="17">17세 · 고등학생</button>
+            <button class="chip" data-age="20">20세 · 성인 첫해</button>
+            <button class="chip" data-age="27">27세 · 직장 초년</button>
+          </div>
+          <div class="stepper">
+            <label for="perDayMinus">하루 흡연량 <small>한국 성인 흡연자 평균 약 14개비</small></label>
+            <div class="ctl"><button id="perDayMinus" aria-label="줄이기">−</button><span class="num" id="perDay">14개비</span><button id="perDayPlus" aria-label="늘리기">+</button></div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <section class="dash" aria-live="polite">
+      <div class="scene-tag" style="margin-top:0">Scene 02 · 계산서</div>
+      <div class="sheet" id="sheet">
+        <div class="sheet-hd">
+          <div class="bigav" id="bigav"></div>
+          <div>
+            <h2 id="shName">—<small id="shSub"></small></h2>
+            <div class="pills" id="pills"></div>
+          </div>
+          <div class="gauge" aria-label="니코틴 의존도">
+            <svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" fill="none" stroke="var(--bg2)" stroke-width="9"/><circle id="gArc" cx="50" cy="50" r="42" fill="none" stroke="var(--ember)" stroke-width="9" stroke-linecap="round" stroke-dasharray="263.9" stroke-dashoffset="263.9" transform="rotate(-90 50 50)" style="transition:stroke-dashoffset .9s cubic-bezier(.2,.8,.2,1),stroke .4s"/><text id="gTxt" x="50" y="56" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="20" font-weight="500" fill="var(--fg)">0</text></svg>
+            <div><div class="lab">의존도</div><div class="val" id="gLab">—</div></div>
+          </div>
+        </div>
+
+        <div class="tiles">
+          <div class="tile hot"><div class="k">피운 담배 <span class="num" id="tPY"></span></div><div class="v"><span class="num" id="tCig">0</span><small>개비</small></div><div class="s" id="tCigS"></div></div>
+          <div class="tile"><div class="k">태운 돈</div><div class="v num" id="tWon">0원</div><div class="s" id="tWonS"></div></div>
+          <div class="tile"><div class="k">들이마신 타르</div><div class="v num"><span id="tTar">0</span><small id="tTarU"></small></div><div class="s" id="tTarS"></div></div>
+          <div class="tile hot"><div class="k">짧아진 수명</div><div class="v num"><span id="tLife">0</span><small id="tLifeU"></small></div><div class="s" id="tLifeS"></div></div>
+        </div>
+
+        <div class="body2">
+          <div class="figure" id="figure">
+            <div class="cap">폐의 상태 · 3D</div>
+            <canvas id="lungs" aria-label="흡연 기간에 따라 변색되는 폐 3D 모형"></canvas>
+            <div class="lungkey"><span>건강</span><i></i><span>타르</span></div>
+          </div>
+          <div class="changes">
+            <h3 id="chTitle">몸 안에서 일어난 일<span id="chSub"></span></h3>
+            <ul class="tl" id="tl"></ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="scene-tag">Scene 03 · 70세의 계산</div>
+      <div class="duo">
+        <div class="sheet proj">
+          <div class="hd card-hd" style="padding:18px 20px 0;display:flex;justify-content:space-between;align-items:baseline"><h2 style="font-size:17px">이대로 70세까지 피우면</h2><span class="sub num" style="font-family:var(--mono);font-size:11.5px;color:var(--muted)" id="projSub"></span></div>
+          <div class="pilewrap"><canvas id="pile" aria-label="70세까지 피울 담배를 쌓은 3D 더미"></canvas><span class="pilekey">■ 1개 = 담배 250개비</span><span class="pilenum num" id="pileNum"></span></div>
+          <div class="bd">
+            <div class="bars">
+              <div class="bar"><span class="lab">담배</span><div class="trk"><div class="fill now" id="bCigNow"></div><div class="fill" id="bCig" style="position:absolute;top:0;left:0;opacity:.55"></div></div><span class="v" id="bCigV"></span></div>
+              <div class="bar"><span class="lab">돈</span><div class="trk"><div class="fill now" id="bWonNow"></div><div class="fill" id="bWon" style="position:absolute;top:0;left:0;opacity:.55"></div></div><span class="v" id="bWonV"></span></div>
+              <div class="bar"><span class="lab">수명</span><div class="trk"><div class="fill now" id="bLifeNow"></div><div class="fill" id="bLife" style="position:absolute;top:0;left:0;opacity:.55"></div></div><span class="v" id="bLifeV"></span></div>
+            </div>
+            <div class="legend"><span><i style="background:var(--ember2)"></i>지금까지</span><span><i style="background:var(--ember);opacity:.55"></i>70세까지 누적</span></div>
+            <div class="equiv" id="equiv"></div>
+          </div>
+        </div>
+        <div class="sheet quit">
+          <div style="padding:18px 20px 0;display:flex;justify-content:space-between;align-items:baseline"><h2 style="font-size:17px">오늘 끊으면</h2><span style="font-family:var(--mono);font-size:11.5px;color:var(--muted)" id="quitSub"></span></div>
+          <div class="bd">
+            <div class="big"><span class="num" id="qGain">0</span><span>년의 수명을 되찾습니다</span></div>
+            <p id="qText"></p>
+            <div class="equiv" id="qEquiv"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="scene-tag">Scene 04 · 회복</div>
+      <div class="sheet recov">
+        <div style="padding:18px 20px 0;display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px"><h2 style="font-size:17px">마지막 담배 이후, 몸이 돌아오는 순서</h2><span style="font-family:var(--mono);font-size:11.5px;color:var(--muted)">WHO · 美 CDC 금연 회복 타임라인</span></div>
+        <div class="bd">
+          <div class="steps">
+            <div class="step"><div class="o"></div><div class="t">20분</div><div class="d">심박수·혈압이 정상 범위로</div></div>
+            <div class="step"><div class="o"></div><div class="t">12시간</div><div class="d">혈중 일산화탄소 정상화</div></div>
+            <div class="step"><div class="o"></div><div class="t">2~12주</div><div class="d">혈액순환·폐기능 개선</div></div>
+            <div class="step"><div class="o"></div><div class="t">1~9개월</div><div class="d">기침·숨가쁨 감소</div></div>
+            <div class="step"><div class="o"></div><div class="t">1년</div><div class="d">심장질환 위험 절반으로</div></div>
+            <div class="step"><div class="o"></div><div class="t">5년</div><div class="d">뇌졸중 위험 비흡연자 수준</div></div>
+            <div class="step"><div class="o"></div><div class="t">10년</div><div class="d">폐암 사망 위험 절반으로</div></div>
+            <div class="step"><div class="o"></div><div class="t">15년</div><div class="d">심장병 위험 비흡연자 수준</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer class="foot">
+    <h4>계산 기준과 출처</h4>
+    <ol>
+      <li>수명 단축: 담배 1개비당 평균 약 20분(남성 17분, 여성 22분). Jackson SE 외, <i>Addiction</i>, 2024(University College London).</li>
+      <li>금연 시 되찾는 수명: 30세 약 10년, 40세 9년, 50세 6년, 60세 3년. Doll R 외, <i>BMJ</i>, 2004(영국 의사 50년 추적).</li>
+      <li>담배 가격 4,500원/20개비, 타르 1개비 6mg(국내 시판 평균치 가정), 하루 흡연량 기본값 14개비(질병관리청 국민건강영양조사 성인 흡연자 평균 근사치).</li>
+      <li>미성년 시작 위험: 성인 매일 흡연자의 약 90%가 18세 이전 첫 흡연. 美 Surgeon General Report, 2012. 뇌와 폐는 20대 초중반까지 발달합니다.</li>
+      <li>회복 타임라인: WHO, 美 CDC. 모든 수치는 평균 추정치이며 개인차가 있습니다. 이 시뮬레이터는 교육·홍보 목적입니다.</li>
+    </ol>
+  </footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+'use strict';
+const PRICE_PER_CIG = 4500/20, TAR_MG = 6, NIC_MG = 1, MIN_PER_CIG = 20;
+
+const CHARS = [
+  {id:'day', name:'지호', dur:'1일', days:1, tag:'어제 처음 담배를 물었다',
+   sub:'어젯밤 친구가 건넨 한 개비. "한 번쯤은" 이라고 생각했다.',
+   hair:'#2B2420', skin:'#E7C4A8', shirt:'#4A6B8A',
+   dep:{v:8,label:'첫 접촉',note:'아직 의존은 없지만, 뇌는 이미 니코틴을 기억합니다.'},
+   chTitle:'첫 하루, 몸 안에서 일어난 일',
+   changes:[
+     ['10초','니코틴이 <b>뇌에 도달</b>. 도파민이 쏟아지며 "괜찮네"라는 기억이 저장됩니다.'],
+     ['몇 분','심박수 <b>분당 10~20회 상승</b>, 혈압 상승. 혈관이 수축해 손끝 온도가 떨어집니다.'],
+     ['몇 시간','일산화탄소가 헤모글로빈에 달라붙어 <b>산소 운반량 감소</b>. 가벼운 두통·어지러움.'],
+     ['하루','<b>7,000여 종의 화학물질</b>, 그중 70종 이상의 발암물질에 처음 노출되었습니다.'],
+   ]},
+  {id:'month', name:'수아', dur:'1개월', days:30, tag:'한 달째, 매일 피우고 있다',
+   sub:'"스트레스 풀릴 때만" 이었는데, 이제는 아침에 눈뜨면 손이 먼저 찾는다.',
+   hair:'#5A3A2A', skin:'#F0D2BC', shirt:'#8A5A6B',
+   dep:{v:46,label:'형성 단계',note:'니코틴 수용체가 늘어나 갈망이 시작되는 시기입니다.'},
+   chTitle:'한 달, 몸 안에서 일어난 일',
+   changes:[
+     ['1주','뇌의 <b>니코틴 수용체 수가 증가</b>. 담배가 없으면 초조해지는 첫 갈망.'],
+     ['2주','아침 <b>기침과 가래</b>가 늘고 계단에서 숨이 찹니다. 섬모 기능 저하.'],
+     ['3주','<b>후각·미각이 둔해지고</b>, 치아와 손가락에 착색이 시작됩니다.'],
+     ['1개월','"피우는 시간"이 일과에 박힙니다. <b>습관이 의존으로</b> 넘어가는 문턱.'],
+   ]},
+  {id:'decade', name:'민재', dur:'10년', days:3652, tag:'10년째, 하루 한 갑 가까이',
+   sub:'끊어 봤다. 세 번. 그때마다 "다음 달부터"가 다음 달로 밀렸다.',
+   hair:'#1E1A18', skin:'#D9B596', shirt:'#4F5A48',
+   dep:{v:88,label:'고착',note:'신체적·심리적 의존이 모두 굳어진 상태. 전문 금연치료가 효과적입니다.'},
+   chTitle:'10년, 몸 안에서 일어난 일',
+   changes:[
+     ['1년','<b>심근경색 위험</b>이 비흡연자 대비 뚜렷하게 상승. 혈관 내벽 손상 누적.'],
+     ['3년','만성 기침. 피부 콜라겐이 파괴되어 <b>주름과 칙칙함</b>이 또래보다 빠릅니다.'],
+     ['5년','폐기능(FEV1) <b>감소 속도가 빨라지고</b> 잇몸 질환·구취가 고착됩니다.'],
+     ['10년','<b>폐암 위험 비흡연자의 수 배</b>. 만성폐쇄성폐질환(COPD) 초기 변화가 나타날 수 있습니다.'],
+   ]},
+];
+
+const state = {char:CHARS[2], startAge:17, perDay:14};
+
+/* ── helpers ── */
+const $ = id => document.getElementById(id);
+const fmtInt = n => Math.round(n).toLocaleString('ko-KR');
+function fmtWon(n){
+  if(n>=1e8) return (n/1e8).toFixed(n>=1e9?0:1).replace(/\.0$/,'')+'억 원';
+  if(n>=1e4) return fmtInt(n/1e4)+'만 원';
+  return fmtInt(n)+'원';
+}
+function fmtTar(mg){
+  if(mg>=1e6) return {v:(mg/1e6).toFixed(2),u:'kg'};
+  if(mg>=1000) return {v:(mg/1000).toFixed(mg>=10000?0:1),u:'g'};
+  return {v:fmtInt(mg),u:'mg'};
+}
+function fmtMin(min){
+  if(min<60) return {v:fmtInt(min),u:'분'};
+  if(min<60*24) return {v:(min/60).toFixed(1).replace(/\.0$/,''),u:'시간'};
+  const d=min/1440;
+  if(d<365) return {v:fmtInt(d),u:'일'};
+  const y=d/365.25;
+  return {v:y.toFixed(1).replace(/\.0$/,''),u:'년'};
+}
+function quitGain(age){ // Doll 2004: 30→10y, 40→9, 50→6, 60→3
+  const pts=[[0,10],[30,10],[40,9],[50,6],[60,3],[70,1],[90,0]];
+  for(let i=1;i<pts.length;i++){ if(age<=pts[i][0]){const [a0,g0]=pts[i-1],[a1,g1]=pts[i];return g0+(g1-g0)*(age-a0)/(a1-a0);} }
+  return 0;
+}
+function compute(){
+  const c=state.char, days=c.days, per=state.perDay, start=state.startAge;
+  const cigs=days*per, won=cigs*PRICE_PER_CIG, tar=cigs*TAR_MG, nic=cigs*NIC_MG, min=cigs*MIN_PER_CIG;
+  const years=days/365.25, age=start+years, packYears=per/20*years;
+  const toSeventy=Math.max(0,70-age), fCigs=cigs+toSeventy*365.25*per, fWon=fCigs*PRICE_PER_CIG, fMin=fCigs*MIN_PER_CIG;
+  const early = start<19;
+  let sev=Math.pow(days/3652,0.4)*Math.min(1.25,Math.max(.6,per/14)); if(early) sev+=.05; sev=Math.min(1,sev);
+  let dep=c.dep.v; if(early) dep=Math.min(96,Math.round(dep+6));
+  return {cigs,won,tar,nic,min,years,age,packYears,toSeventy,fCigs,fWon,fMin,early,sev,dep,gain:quitGain(age)};
+}
+
+/* ── avatar SVG ── */
+function avatar(c, big){
+  const lung = `var(--lung)`;
+  const hairPath = c.id==='month' ? `<path d="M56 90 C54 34 146 34 144 90 L148 128 C150 96 50 96 52 128 Z" fill="${c.hair}"/>`
+    : c.id==='day' ? `<path d="M56 88 C50 34 150 34 144 88 L138 84 C132 62 68 62 62 84 Z" fill="${c.hair}"/>`
+    : `<path d="M58 86 C58 38 142 38 142 86 L134 86 C130 66 70 66 66 86 Z" fill="${c.hair}"/>`;
+  return `<svg viewBox="0 0 200 240" role="img" aria-label="${c.name}">
+  <defs><linearGradient id="g${c.id}${big?'b':''}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${c.shirt}"/><stop offset="1" stop-color="#15121a"/></linearGradient></defs>
+  <path d="M20 240 C20 170 60 150 100 150 C140 150 180 170 180 240 Z" fill="url(#g${c.id}${big?'b':''})"/>
+  <rect x="86" y="118" width="28" height="38" rx="10" fill="${c.skin}" opacity=".95"/>
+  <circle cx="100" cy="86" r="42" fill="${c.skin}"/>
+  ${hairPath}
+  <circle cx="86" cy="92" r="3.2" fill="#2a2124"/><circle cx="114" cy="92" r="3.2" fill="#2a2124"/>
+  <path d="M90 110 Q100 ${big?112:114} 110 110" stroke="#8a5a52" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+  ${big?`<g class="lungs" opacity=".95">
+    <path d="M97 160 L97 206" stroke="#C9A9A0" stroke-width="5" stroke-linecap="round"/>
+    <path d="M94 172 C78 170 64 184 62 204 C60 222 72 232 86 230 C94 229 97 222 97 212 L97 174 Z" fill="${lung}" stroke="rgba(0,0,0,.35)" stroke-width="1.5"/>
+    <path d="M106 172 C122 170 136 184 138 204 C140 222 128 232 114 230 C106 229 103 222 103 212 L103 174 Z" fill="${lung}" stroke="rgba(0,0,0,.35)" stroke-width="1.5"/>
+    <path d="M90 190 Q80 196 76 212 M110 190 Q120 196 124 212" stroke="rgba(255,255,255,.22)" stroke-width="2" fill="none" stroke-linecap="round"/>
+  </g>
+  <g class="wisp" fill="none" stroke="rgba(237,232,225,.35)" stroke-width="2" stroke-linecap="round">
+    <path d="M118 112 c8 -6 2 -14 8 -20 c6 -6 2 -12 6 -18" style="animation:wisp 3.4s ease-in-out infinite"/>
+    <path d="M122 114 c10 -4 6 -12 12 -16 c6 -4 4 -10 10 -14" style="animation:wisp 3.4s ease-in-out infinite .9s" opacity=".6"/>
+  </g>`:''}
+  </svg>`;
+}
+const st=document.createElement('style'); st.textContent=`@keyframes wisp{0%{opacity:0;transform:translateY(4px)}40%{opacity:1}100%{opacity:0;transform:translateY(-14px) translateX(6px)}}`; document.head.appendChild(st);
+
+/* ── number tween ── */
+const tweens=new Map();
+function tween(el, to, fmt){
+  const from = tweens.has(el)? tweens.get(el).cur : 0;
+  if(tweens.has(el)) cancelAnimationFrame(tweens.get(el).raf);
+  const t0=performance.now(), dur=800, rec={cur:from,raf:0};
+  const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function step(t){
+    const p=reduce?1:Math.min(1,(t-t0)/dur), e=1-Math.pow(1-p,3);
+    rec.cur=from+(to-from)*e; el.textContent=fmt(rec.cur);
+    if(p<1) rec.raf=requestAnimationFrame(step);
+  }
+  rec.raf=requestAnimationFrame(step); tweens.set(el,rec);
+}
+
+/* ── render ── */
+function renderPeople(){
+  $('people').innerHTML = CHARS.map(c=>`<button class="person" data-id="${c.id}" aria-pressed="${c===state.char}">
+    <span class="av">${avatar(c,false)}</span>
+    <span><span class="nm">${c.name}</span><span class="ds">${c.tag}</span></span>
+    <span class="dur">${c.dur}</span></button>`).join('');
+}
+function render(first){
+  const r=compute(), c=state.char;
+  document.documentElement.style.setProperty('--sev', r.sev.toFixed(3));
+  { const mix=(a,b,t)=>Math.round(a+(b-a)*t); const t=r.sev*0.88; // 건강한 분홍 → 타르 갈색
+    document.documentElement.style.setProperty('--lung', `rgb(${mix(229,36,t)},${mix(142,28,t)},${mix(150,23,t)})`); }
+
+  // age controls
+  $('ageNum').textContent=state.startAge;
+  const pct=(state.startAge-12)/(45-12)*100; $('age').style.setProperty('--pct',pct+'%');
+  const tag=$('ageTag');
+  if(state.startAge<19){tag.textContent='미성년 시작 · 위험 가중';tag.className='tag';}
+  else if(state.startAge<25){tag.textContent='뇌·폐 발달 미완성 시기';tag.className='tag';}
+  else {tag.textContent='성인 시작';tag.className='tag ok';}
+  document.querySelectorAll('#chips .chip').forEach(b=>b.setAttribute('aria-pressed', +b.dataset.age===state.startAge));
+  $('perDay').textContent=state.perDay+'개비';
+  document.querySelectorAll('.person').forEach(b=>b.setAttribute('aria-pressed', b.dataset.id===c.id));
+
+  // header
+  $('bigav').innerHTML=avatar(c,true);
+  const ageNow=Math.round(r.age);
+  $('shName').innerHTML=`${c.name}, ${ageNow}세<small id="shSub">${c.sub}</small>`;
+  $('pills').innerHTML=`<span class="pill hot">${c.dur} 흡연</span><span class="pill">${state.startAge}세 시작</span><span class="pill">${r.packYears<0.1?'<0.1':r.packYears.toFixed(1)} 갑년(pack-years)</span>${r.early?'<span class="pill warn">18세 이전 시작</span>':''}`;
+  const arc=$('gArc'); arc.style.strokeDashoffset=(263.9*(1-r.dep/100)).toFixed(1);
+  arc.style.stroke = r.dep<30?'var(--warn)':'var(--ember)';
+  tween($('gTxt'), r.dep, v=>Math.round(v));
+  $('gLab').textContent=c.dep.label;
+
+  // tiles
+  tween($('tCig'), r.cigs, fmtInt);
+  $('tPY').textContent = r.cigs>=20? Math.round(r.cigs/20).toLocaleString()+'갑' : '';
+  $('tCigS').textContent = c.id==='day'? `하루 ${state.perDay}개비. 한 개비마다 ${MIN_PER_CIG}분.` : `하루 ${state.perDay}개비 × ${c.id==='month'?'30일':'3,652일'}`;
+  tween($('tWon'), r.won, fmtWon);
+  $('tWonS').textContent = r.won>=20000? `치킨 ${fmtInt(r.won/20000)}마리 값` : `커피 ${Math.max(1,Math.round(r.won/4500))}잔 값`;
+  const tar=fmtTar(r.tar);
+  tween($('tTar'), parseFloat(tar.v.replace(/,/g,'')), v=>{ const s=tar.u==='mg'?fmtInt(v):v.toFixed(tar.v.includes('.')?tar.v.split('.')[1].length:0); return s; });
+  $('tTarU').textContent=tar.u;
+  $('tTarS').textContent = r.tar>=1000? `니코틴 ${fmtTar(r.nic).v}${fmtTar(r.nic).u} 포함. 폐 속 섬모 위에 쌓인 끈적한 층.` : `니코틴 ${fmtInt(r.nic)}mg. 한 개비당 타르 6mg 기준.`;
+  const life=fmtMin(r.min); tween($('tLife'), parseFloat(life.v.replace(/,/g,'')), v=> life.u==='분'||life.u==='일'? fmtInt(v): v.toFixed(1).replace(/\.0$/,''));
+  $('tLifeU').textContent=life.u;
+  $('tLifeS').textContent = r.min<1440? `개비당 20분 기준. 영화 ${Math.max(1,(r.min/120).toFixed(1).replace(/\.0$/,''))}편 길이.` : r.min<1440*365? `개비당 20분 기준. ${fmtInt(r.min/1440)}일 밤낮이 사라졌습니다.` : `개비당 20분 기준. 생애 끝에서 ${fmtInt(r.min/1440)}일을 잃습니다.`;
+
+  // 3D lungs
+  if(window.__lungs) window.__lungs(r.sev, c.id);
+
+  // changes
+  $('chTitle').innerHTML=`${c.chTitle}<span id="chSub">${state.startAge}세 ${c.name}의 경우</span>`;
+  const tl=$('tl'); tl.innerHTML='';
+  const items=c.changes.slice();
+  if(r.early) items.push(['시작 나이', c.id==='decade'
+     ? `<b>${state.startAge}세</b>에 시작했습니다. 성인 매일 흡연자 10명 중 9명이 그렇게 시작했고, 10대에 시작한 흡연은 성인기 시작보다 <b>의존이 깊고 금연이 어렵습니다</b>.`
+     : `<b>${state.startAge}세</b>. 뇌의 보상회로가 아직 자라는 중입니다. 이 나이의 니코틴은 <b>성인보다 훨씬 빨리 의존을 만듭니다</b>. 매일 흡연자 10명 중 9명이 18세 전에 시작했습니다.`]);
+  else if(state.startAge<25) items.push(['시작 나이', `<b>${state.startAge}세</b>. 폐는 20대 초중반까지 자랍니다. 이 시기의 흡연은 <b>최대 폐기능 자체를 낮춰</b> 평생의 기준선을 끌어내립니다.`]);
+  tl.innerHTML=items.map(([t,d])=>`<li><span class="dot"></span><span class="t">${t}</span><span class="d">${d}</span></li>`).join('');
+
+  // projection
+  $('projSub').textContent = r.toSeventy>0? `앞으로 ${Math.round(r.toSeventy)}년 더` : '이미 70세 이상';
+  const pNow = Math.max(1.5, r.cigs/r.fCigs*100);
+  ['Cig','Won','Life'].forEach(k=>{ $('b'+k+'Now').style.transform=`scaleX(${pNow/100})`; $('b'+k).style.transform='scaleX(1)'; });
+  $('bCigV').textContent = fmtInt(r.fCigs)+'개비';
+  if(window.__pile) window.__pile(r.fCigs); $('pileNum').textContent=fmtInt(r.fCigs)+'개비';
+  $('bWonV').textContent = fmtWon(r.fWon);
+  const fl=fmtMin(r.fMin); $('bLifeV').textContent = `−${fl.v}${fl.u}`;
+  const eq=[];
+  eq.push({n:fmtInt(r.fWon/1500000),u:'대',l:'최신 스마트폰(150만 원)'});
+  eq.push({n:fmtInt(r.fWon/250000),u:'회',l:'제주 왕복 항공권(25만 원)'});
+  eq.push({n:fmtInt(r.fMin/1440),u:'일',l:'사라지는 아침'});
+  $('equiv').innerHTML=eq.map(e=>`<div class="eq"><div class="n">${e.n}<small>${e.u}</small></div><div class="l">${e.l}</div></div>`).join('');
+
+  // quit
+  const gain = c.id==='day'? Math.max(r.gain, 9.5) : r.gain;
+  $('quitSub').textContent=`${ageNow}세에 금연할 때`;
+  tween($('qGain'), gain, v=>v.toFixed(1).replace(/\.0$/,''));
+  $('qText').innerHTML = c.id==='day'
+    ? `어제 한 개비는 <b>20분</b>을 가져갔습니다. 오늘 두 번째를 피우지 않으면, 70세까지 <b>${fmtInt(r.fCigs)}개비</b>와 <b>${fmtWon(r.fWon)}</b>, 그리고 <b>약 ${fl.v}${fl.u}</b>의 시간이 그대로 남습니다. 지금이 가장 싼 금연입니다.`
+    : c.id==='month'
+    ? `한 달의 손실은 거의 전부 되돌아옵니다. 2주면 폐 섬모가 다시 움직이고, 1년이면 심장 위험이 절반이 됩니다. 아직 <b>의존이 굳기 전</b>입니다. 지금 멈추면 ${ageNow}세 기준 <b>약 ${gain.toFixed(0)}년</b>을 지킵니다.`
+    : `${ageNow}세에 금연하면 평균 <b>약 ${gain.toFixed(1).replace(/\.0$/,'')}년</b>을 되찾습니다. 세 번 실패한 사람의 네 번째 시도는 실패가 아니라 통계입니다. 금연치료 지원(보건소·병의원)을 쓰면 성공률이 혼자 끊을 때의 <b>2~3배</b>입니다.`;
+  const qe=[];
+  qe.push({n:'20',u:'분',l:'후 심박수가 돌아옵니다'});
+  qe.push({n:fmtWon(state.perDay*PRICE_PER_CIG*365).replace(' 원',''),u:'',l:'매년 지갑에 남는 돈'});
+  qe.push({n:'1544-9030',u:'',l:'금연상담전화(무료)'});
+  $('qEquiv').innerHTML=qe.map(e=>`<div class="eq"><div class="n" style="${e.n.length>6?'font-size:16px':''}">${e.n}<small>${e.u}</small></div><div class="l">${e.l}</div></div>`).join('');
+
+  if(!first){ const sh=$('sheet'); sh.classList.remove('fade'); void sh.offsetWidth; sh.classList.add('fade'); }
+}
+
+/* ── events ── */
+renderPeople();
+$('people').addEventListener('click', e=>{ const b=e.target.closest('.person'); if(!b) return; state.char=CHARS.find(c=>c.id===b.dataset.id); render(); });
+$('age').addEventListener('input', e=>{ state.startAge=+e.target.value; render(); });
+$('chips').addEventListener('click', e=>{ const b=e.target.closest('.chip'); if(!b) return; state.startAge=+b.dataset.age; $('age').value=state.startAge; render(); });
+$('perDayMinus').addEventListener('click', ()=>{ state.perDay=Math.max(1,state.perDay-1); render(); });
+$('perDayPlus').addEventListener('click', ()=>{ state.perDay=Math.min(40,state.perDay+1); render(); });
+render(true);
+
+/* ── scroll reveal (첫 화면 밖 요소만 숨겼다가 등장) ── */
+(function reveal(){
+  if(matchMedia('(prefers-reduced-motion: reduce)').matches || !('IntersectionObserver' in window)) return;
+  const els=[...document.querySelectorAll('.sheet,.scene-tag,.rail .card,.foot')];
+  const io=new IntersectionObserver(es=>es.forEach(e=>{ if(e.isIntersecting){ e.target.classList.add('on'); io.unobserve(e.target);} }),{threshold:.12});
+  els.forEach(el=>{ const r=el.getBoundingClientRect(); if(r.top>innerHeight){ el.classList.add('pre'); io.observe(el);} });
+})();
+
+/* ── timecode HUD ── */
+(function tc(){
+  const el=$('tc'); if(!el) return; const t0=performance.now();
+  let prev='';
+  (function tick(){ if(!document.hidden && scrollY<innerHeight*2.2){ const ms=performance.now()-t0; const f=Math.floor(ms/1000*24)%24, s=Math.floor(ms/1000)%60, m=Math.floor(ms/60000)%60, h=Math.floor(ms/3600000);
+    const txt=[h,m,s,f].map(n=>String(n).padStart(2,'0')).join(':'); if(txt!==prev){ el.textContent=txt; prev=txt; } } requestAnimationFrame(tick); })();
+  // 그레인 타일: 128px 노이즈를 한 번만 그려 배경으로 사용
+  const gc=document.createElement('canvas'); gc.width=gc.height=128; const gx=gc.getContext('2d'); const img=gx.createImageData(128,128);
+  for(let i=0;i<img.data.length;i+=4){ const v=Math.random()*255|0; img.data[i]=img.data[i+1]=img.data[i+2]=v; img.data[i+3]=255; }
+  gx.putImageData(img,0,0); const gEl=document.querySelector('.grain'); if(gEl) gEl.style.backgroundImage='url('+gc.toDataURL()+')';
+})();
+
+/* ── 3D: 담배 스테이지 + 폐 ── */
+(function three(){
+  if(!window.THREE){ // 라이브러리를 못 불러오면 3D 없이 내용만 보여준다
+    const c=document.getElementById('cut'); if(c) c.style.opacity='0';
+    const st=document.getElementById('stageWrap'); if(st){ st.classList.remove('intro'); st.style.background='radial-gradient(60% 50% at 75% 60%,rgba(255,106,43,.18),transparent 70%),#07060A'; }
+    return; }
+  const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const DPR=Math.min(1.5,devicePixelRatio||1);
+  const LOW=(navigator.hardwareConcurrency||8)<=4 || matchMedia('(max-width:700px)').matches; // 저사양·모바일이면 입자 절반
+  // 캔버스가 화면에 보일 때만 그린다
+  function loop(cv, draw){
+    let on=false, raf=0, last=0;
+    function tick(now){ const dt=Math.min(.05,(now-last)/1000); last=now; draw(dt); raf=requestAnimationFrame(tick); }
+    function set(v){ if(v===on) return; on=v; if(on){ last=performance.now(); raf=requestAnimationFrame(tick); } else cancelAnimationFrame(raf); }
+    let inView=true;
+    if('IntersectionObserver' in window) new IntersectionObserver(es=>{ inView=es[0].isIntersecting; set(inView&&!document.hidden); },{rootMargin:'120px'}).observe(cv);
+    document.addEventListener('visibilitychange',()=>set(inView&&!document.hidden));
+    set(true);
+  }
+  function renderer(cv, alpha){ const r=new THREE.WebGLRenderer({canvas:cv,antialias:DPR<1.5,alpha,powerPreference:'high-performance'}); r.setPixelRatio(DPR); r.outputEncoding=THREE.sRGBEncoding; return r; }
+
+  // 연기 스프라이트 텍스처
+  function puffTexture(){ const c=document.createElement('canvas'); c.width=c.height=64; const x=c.getContext('2d');
+    const g=x.createRadialGradient(32,32,0,32,32,32); g.addColorStop(0,'rgba(255,255,255,.9)'); g.addColorStop(.4,'rgba(255,255,255,.35)'); g.addColorStop(1,'rgba(255,255,255,0)');
+    x.fillStyle=g; x.fillRect(0,0,64,64); const t=new THREE.CanvasTexture(c); return t; }
+  const puff=puffTexture();
+
+  function makeSmoke(n, origin, spread){
+    const pos=new Float32Array(n*3), life=new Float32Array(n), seed=new Float32Array(n);
+    for(let i=0;i<n;i++){ life[i]=Math.random(); seed[i]=Math.random()*Math.PI*2; }
+    const geo=new THREE.BufferGeometry(); geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
+    const mat=new THREE.PointsMaterial({map:puff,size:1.3,transparent:true,opacity:.07,depthWrite:false,blending:THREE.AdditiveBlending,color:0xd8d0c8,sizeAttenuation:true});
+    const pts=new THREE.Points(geo,mat); pts.frustumCulled=false;
+    pts.userData.update=(dt,orig)=>{ const o=orig||origin; for(let i=0;i<n;i++){ life[i]+=dt*.14; if(life[i]>1){life[i]=0;} const l=life[i], s=seed[i];
+        pos[i*3]=o.x+Math.sin(s+l*6)*.25*l+l*spread.x+Math.sin(s)*.08;
+        pos[i*3+1]=o.y+l*spread.y+Math.sin(s*2+l*4)*.05;
+        pos[i*3+2]=o.z+Math.cos(s+l*5)*.25*l; }
+      geo.attributes.position.needsUpdate=true; };
+    return pts;
+  }
+
+  /* 스테이지 */
+  (function stage(){
+    const cv=$('stage'); if(!cv) return;
+    const rnd=renderer(cv,false); rnd.toneMapping=THREE.ACESFilmicToneMapping; rnd.toneMappingExposure=1.1;
+    const sc=new THREE.Scene(); sc.background=new THREE.Color(0x07060a); sc.fog=new THREE.FogExp2(0x07060a,.12);
+    const cam=new THREE.PerspectiveCamera(32,2,.1,60); cam.position.set(0,.9,7.2);
+    sc.add(new THREE.AmbientLight(0x3a3040,.6));
+    const key=new THREE.DirectionalLight(0xfff0dc,.9); key.position.set(-3,4,5); sc.add(key);
+    const fill=new THREE.DirectionalLight(0x5fd0b8,.35); fill.position.set(4,-1,-3); sc.add(fill);
+    const ember=new THREE.PointLight(0xff6a2b,2.2,6,2); sc.add(ember);
+    // 바닥: 희미한 반사면
+    const floor=new THREE.Mesh(new THREE.PlaneGeometry(40,40),new THREE.MeshStandardMaterial({color:0x0c0a10,roughness:.35,metalness:.6}));
+    floor.rotation.x=-Math.PI/2; floor.position.y=-.55; sc.add(floor);
+
+    const g=new THREE.Group(); sc.add(g); g.rotation.z=.08; g.rotation.y=-.35;
+    const L=5.2, R=.2;
+    const paperM=new THREE.MeshStandardMaterial({color:0xf3eee4,roughness:.85});
+    const paper=new THREE.Mesh(new THREE.CylinderGeometry(R,R,1,48),paperM); paper.rotation.z=Math.PI/2; g.add(paper);
+    const filt=new THREE.Mesh(new THREE.CylinderGeometry(R*1.005,R*1.005,1.6,48),new THREE.MeshStandardMaterial({color:0xc48a45,roughness:.9})); filt.rotation.z=Math.PI/2; filt.position.x=-L/2-.8; g.add(filt);
+    const band=new THREE.Mesh(new THREE.CylinderGeometry(R*1.01,R*1.01,.05,48),new THREE.MeshStandardMaterial({color:0xe8d5a8,roughness:.6})); band.rotation.z=Math.PI/2; band.position.x=-L/2; g.add(band);
+    const ashM=new THREE.MeshStandardMaterial({color:0x6b6764,roughness:1});
+    const ash=new THREE.Mesh(new THREE.CylinderGeometry(R*.95,R*.9,1,32),ashM); ash.rotation.z=Math.PI/2; g.add(ash);
+    const tipM=new THREE.MeshBasicMaterial({color:0xff7a2b}); const tip=new THREE.Mesh(new THREE.SphereGeometry(R*1.02,32,16),tipM); tip.scale.x=.35; g.add(tip);
+    const smoke=makeSmoke(LOW?220:380,new THREE.Vector3(0,0,0),new THREE.Vector3(.9,4.2,0)); sc.add(smoke);
+    const tipW=new THREE.Vector3();
+    // 불씨 플레어 + 공기 중 먼지(보케)
+    const flare=new THREE.Sprite(new THREE.SpriteMaterial({map:puff,color:0xff7a2b,transparent:true,opacity:.55,blending:THREE.AdditiveBlending,depthWrite:false})); flare.scale.set(1.6,1.6,1); sc.add(flare);
+    const dustN=LOW?60:120, dustPos=new Float32Array(dustN*3), dustSeed=[]; for(let i=0;i<dustN;i++){ dustPos[i*3]=(Math.random()-.5)*14; dustPos[i*3+1]=(Math.random()-.5)*6; dustPos[i*3+2]=(Math.random()-.5)*8-1; dustSeed.push(Math.random()*6.28); }
+    const dustGeo=new THREE.BufferGeometry(); dustGeo.setAttribute('position',new THREE.BufferAttribute(dustPos,3));
+    const dust=new THREE.Points(dustGeo,new THREE.PointsMaterial({map:puff,size:.14,transparent:true,opacity:.5,color:0xffd9b0,depthWrite:false,blending:THREE.AdditiveBlending})); dust.frustumCulled=false; sc.add(dust);
+
+    // 카메라 프리셋(컷마다 앵글이 바뀜) + 오프닝 돌리인
+    const SHOTS=[{p:[0,.9,7.2],fov:32},{p:[3.2,.5,5.4],fov:36},{p:[-2.4,1.8,6.2],fov:30},{p:[1.2,-.2,4.6],fov:42}];
+    let shot=0, intro=0, lastCycle=0, scrollP=0;
+    const stageEl=$('stageWrap'), cutEl=$('cut'), countEl=$('count'), subEl=$('sub');
+    stageEl.classList.add('intro');
+    requestAnimationFrame(()=>{ cutEl.style.opacity='0'; setTimeout(()=>stageEl.classList.remove('intro'),500); });
+    function doCut(){ cutEl.classList.add('flash'); cutEl.style.opacity='1'; setTimeout(()=>{ cutEl.classList.remove('flash'); cutEl.style.opacity='0'; },90); }
+    // 스크롤 진행도 → 자막 + 카메라
+    const SUBS=[[0,'실제로는 약 7분이면 다 탑니다.'],[.22,'그 7분이, 수명에서 20분을 가져갑니다.'],[.48,'한 갑이면 6시간 40분. 하루 한 갑이면, 1년에 100일.'],[.74,'세 사람을 준비했습니다. 그들이 몇 살에 시작했는지는 당신이 정합니다.']];
+    let subIdx=0;
+    function onScroll(){ const hero=$('hero'); const r=hero.getBoundingClientRect(); const total=hero.offsetHeight-innerHeight; scrollP=Math.max(0,Math.min(1,-r.top/Math.max(1,total)));
+      stageEl.classList.toggle('scrolled',scrollP>.03);
+      let i=0; for(let k=0;k<SUBS.length;k++) if(scrollP>=SUBS[k][0]) i=k;
+      if(i!==subIdx){ subIdx=i; subEl.classList.add('swap'); setTimeout(()=>{ subEl.textContent=SUBS[i][1]; subEl.classList.remove('swap'); },350); } }
+    addEventListener('scroll',onScroll,{passive:true}); onScroll();
+
+    let mx=0,my=0; addEventListener('pointermove',e=>{ mx=(e.clientX/innerWidth-.5)*2; my=(e.clientY/innerHeight-.5)*2; },{passive:true});
+    function size(){ const w=cv.clientWidth,h=cv.clientHeight; if(w&&h){ rnd.setSize(w,h,false); cam.aspect=w/h; cam.updateProjectionMatrix(); } }
+    size(); if('ResizeObserver' in window) new ResizeObserver(size).observe(cv); else addEventListener('resize',size);
+    let t=0;
+    const camT=new THREE.Vector3(0,.9,7.2), look=new THREE.Vector3(), emberOff=new THREE.Vector3(0,.3,.4);
+    let lastCount='';
+    function frame(dt){
+      t+=dt; if(!reduce){ intro=Math.min(1,intro+dt/2.6); } else intro=1;
+      const cycle=Math.floor(t/20); if(cycle!==lastCycle){ lastCycle=cycle; if(!reduce){ shot=(shot+1)%SHOTS.length; doCut(); } }
+      const p=(t%20)/20; // 20초에 한 개비 (한 개비 = 20분)
+      const burned=L*p, remain=L-burned;
+      paper.scale.y=Math.max(.02,remain); paper.position.x=-L/2+remain/2;
+      const al=Math.min(1.1,(burned%1.35)+.12); ash.scale.y=al; ash.position.x=-L/2+remain+al/2;
+      tip.position.x=-L/2+remain+.02;
+      const flick=.8+Math.sin(t*9)*.12+Math.sin(t*23)*.08; tipM.color.setRGB(1,.42*flick,.12*flick); ember.intensity=2.6*flick;
+      tip.getWorldPosition(tipW); ember.position.copy(tipW).add(emberOff); flare.position.copy(tipW); flare.material.opacity=.35+flick*.3; flare.scale.setScalar(1.3+flick*.5);
+      smoke.userData.update(dt,tipW);
+      for(let i=0;i<dustN;i++){ dustPos[i*3+1]+=Math.sin(t*.4+dustSeed[i])*.0015; dustPos[i*3]+=Math.cos(t*.3+dustSeed[i])*.0012; } dustGeo.attributes.position.needsUpdate=true;
+      // 남은 시간 카운트다운 (20:00 → 00:00)
+      const left=Math.max(0,20*60*(1-p)); const cs=String(Math.floor(left/60)).padStart(2,'0')+':'+String(Math.floor(left%60)).padStart(2,'0'); if(cs!==lastCount){ countEl.textContent=cs; lastCount=cs; }
+      const mv=reduce?0:1;
+      g.rotation.y=-.35+Math.sin(t*.25)*.18*mv+mx*.12*mv; g.rotation.x=my*.06*mv; g.position.y=-.45+Math.sin(t*.6)*.04*mv;
+      // 카메라: 오프닝 돌리인 → 샷 프리셋 + 스크롤 궤도 + 마우스 패럴랙스
+      const S=SHOTS[shot]; const ease=1-Math.pow(1-intro,3); const dz=(1-ease)*7;
+      const orbit=scrollP*Math.PI*.55*mv;
+      camT.set(S.p[0]*Math.cos(orbit)+S.p[2]*Math.sin(orbit)*.6+mx*.5, S.p[1]-my*.3-scrollP*.9, S.p[2]*Math.cos(orbit)*.85+dz+scrollP*1.2);
+      cam.position.lerp(camT,.045); if(Math.abs(S.fov-cam.fov)>.01){ cam.fov+=(S.fov-cam.fov)*.05; cam.updateProjectionMatrix(); }
+      look.set(0,-scrollP*.3,0); cam.lookAt(look);
+      rnd.render(sc,cam);
+    }
+    loop(cv,frame);
+  })();
+
+  /* 담배 더미: 70세까지 피울 담배를 3D로 쌓는다 (1개 = 100개비) */
+  (function pile(){
+    const cv=$('pile'); if(!cv) return;
+    const rnd=renderer(cv,true);
+    const sc=new THREE.Scene(); const cam=new THREE.PerspectiveCamera(28,2,.1,100);
+    sc.add(new THREE.AmbientLight(0x6a5a60,.9));
+    const key=new THREE.DirectionalLight(0xfff0dc,1.1); key.position.set(-4,6,5); sc.add(key);
+    const rim=new THREE.DirectionalLight(0xff6a2b,.6); rim.position.set(4,2,-4); sc.add(rim);
+    const MAX=3200, geo=new THREE.CylinderGeometry(.11,.11,1.7,6,1,true); geo.rotateZ(Math.PI/2);
+    const mesh=new THREE.InstancedMesh(geo,new THREE.MeshStandardMaterial({color:0xf1ebe0,roughness:.9}),MAX); mesh.count=0; sc.add(mesh);
+    const filt=new THREE.InstancedMesh(new THREE.CylinderGeometry(.112,.112,.5,6).rotateZ(Math.PI/2).translate(-.6,0,0),new THREE.MeshStandardMaterial({color:0xc48a45,roughness:.9}),MAX); filt.count=0; sc.add(filt);
+    const floor=new THREE.Mesh(new THREE.PlaneGeometry(60,60),new THREE.MeshStandardMaterial({color:0x100d14,roughness:.4,metalness:.5})); floor.rotation.x=-Math.PI/2; floor.position.y=-.12; sc.add(floor);
+    // 더미 배치: 층마다 조금씩 좁아지는 피라미드
+    const slots=[]; { let y=0, row=0; while(slots.length<MAX){ const w=Math.max(3,11-row*.32); const cols=Math.max(4,Math.floor(w/.26)); const depth=Math.max(1,4-Math.floor(row/9)); for(let d=0;d<depth&&slots.length<MAX;d++) for(let c=0;c<cols&&slots.length<MAX;c++){ slots.push([(-w/2+c*.26+(row%2)*.13)+(Math.random()-.5)*.04, y, (d-(depth-1)/2)*1.8+(Math.random()-.5)*.15, (Math.random()-.5)*.14]); } y+=.21; row++; } }
+    const m=new THREE.Matrix4(), q=new THREE.Quaternion(), e=new THREE.Euler(), v=new THREE.Vector3(), s=new THREE.Vector3(1,1,1);
+    for(let i=0;i<MAX;i++){ const [x,y,z,r]=slots[i]; e.set(0,r,0); q.setFromEuler(e); v.set(x,y,z); m.compose(v,q,s); mesh.setMatrixAt(i,m); filt.setMatrixAt(i,m); }
+    mesh.instanceMatrix.needsUpdate=true; filt.instanceMatrix.needsUpdate=true;
+    let target=0, shown=0;
+    window.__pile=(n)=>{ target=Math.min(MAX,Math.ceil(n/250)); };
+    function size(){ const w=cv.clientWidth,h=cv.clientHeight; if(w&&h){ rnd.setSize(w,h,false); cam.aspect=w/h; cam.updateProjectionMatrix(); } }
+    size(); if('ResizeObserver' in window) new ResizeObserver(size).observe(cv); else addEventListener('resize',size);
+    let t=0;
+    function frame(dt){ if(!reduce) t+=dt;
+      shown+=(target-shown)*.05; const n=Math.round(shown); mesh.count=n; filt.count=n;
+      const h=slots[Math.max(0,n-1)][1];
+      cam.position.set(Math.sin(t*.15)*4+4, 2.6+h*.9, Math.cos(t*.15)*3+9.5); cam.lookAt(0,h*.45,0);
+      rnd.render(sc,cam); }
+    loop(cv,frame);
+  })();
+
+  /* 폐 */
+  (function lungs(){
+    const cv=$('lungs'); if(!cv) return;
+    const rnd=renderer(cv,true); rnd.toneMapping=THREE.ACESFilmicToneMapping;
+    const sc=new THREE.Scene();
+    const cam=new THREE.PerspectiveCamera(30,1,.1,50); cam.position.set(0,0,8.4);
+    sc.add(new THREE.AmbientLight(0x50405a,.9));
+    const key=new THREE.DirectionalLight(0xffd9c0,1.2); key.position.set(-2.5,3,4); sc.add(key);
+    const rim=new THREE.DirectionalLight(0x5fd0b8,.9); rim.position.set(3,-1,-4); sc.add(rim);
+    const under=new THREE.PointLight(0xff6a2b,.8,6); under.position.set(0,-2,2); sc.add(under);
+    const inner=new THREE.PointLight(0xffb36a,1.6,3.2); inner.position.set(0,-.2,.4); sc.add(inner); // 폐 안쪽 생기(의존도↑ → 꺼짐)
+    // 천장에서 내려오는 빛기둥 + 공기 중 입자
+    const cone=new THREE.Mesh(new THREE.ConeGeometry(2.6,7,24,1,true),new THREE.MeshBasicMaterial({color:0xffc9a0,transparent:true,opacity:.05,side:THREE.DoubleSide,depthWrite:false,blending:THREE.AdditiveBlending}));
+    cone.position.set(0,1.6,-1.2); cone.rotation.x=Math.PI; sc.add(cone);
+    const mote=makeSmoke(LOW?60:120,new THREE.Vector3(0,-2.4,0),new THREE.Vector3(.3,4.8,0)); mote.material.size=.35; mote.material.opacity=.12; sc.add(mote);
+    const flashEl=document.createElement('div'); flashEl.style.cssText='position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity .5s'; cv.parentElement.appendChild(flashEl);
+
+    const root=new THREE.Group(); sc.add(root);
+    const lungM=new THREE.MeshStandardMaterial({color:0xe58e96,roughness:.45,metalness:.05});
+    const sg=new THREE.SphereGeometry(1,40,28);
+    const left=new THREE.Mesh(sg,lungM); left.scale.set(.72,1.12,.58); left.position.set(-.8,-.25,0); left.rotation.z=.12; root.add(left);
+    const right=new THREE.Mesh(sg,lungM); right.scale.set(.78,1.18,.6); right.position.set(.84,-.2,0); right.rotation.z=-.12; root.add(right);
+    const tubeM=new THREE.MeshStandardMaterial({color:0xd9c0b6,roughness:.6});
+    const trach=new THREE.Mesh(new THREE.CylinderGeometry(.13,.15,1.1,24),tubeM); trach.position.set(0,1.1,0); root.add(trach);
+    const bl=new THREE.Mesh(new THREE.CylinderGeometry(.09,.11,.9,16),tubeM); bl.position.set(-.38,.45,0); bl.rotation.z=.9; root.add(bl);
+    const br=bl.clone(); br.position.x=.4; br.rotation.z=-.9; root.add(br);
+    // 타르 반점: 인스턴스
+    const N=520, tar=new THREE.InstancedMesh(new THREE.SphereGeometry(.045,6,4),new THREE.MeshStandardMaterial({color:0x1a1410,roughness:1}),N);
+    const m=new THREE.Matrix4(), q=new THREE.Quaternion(), v=new THREE.Vector3(), s=new THREE.Vector3();
+    const spots=[]; for(let i=0;i<N;i++){ const host=i%2?right:left; const u=Math.random()*2-1, ph=Math.random()*Math.PI*2, rr=Math.sqrt(1-u*u); const d=new THREE.Vector3(rr*Math.cos(ph),u,Math.abs(rr*Math.sin(ph))); d.multiply(host.scale).multiplyScalar(1.0); const p=d.add(host.position); spots.push({p,r:.6+Math.random()*1.1}); }
+    root.add(tar);
+    let target=0, cur=0, mode='decade', punch=0, camZ=8.4;
+    window.__lungs=(sev,id)=>{ if(id!==mode){ punch=1; flashEl.style.transition='none'; flashEl.style.opacity='.9'; requestAnimationFrame(()=>{ flashEl.style.transition='opacity .6s'; flashEl.style.opacity='0'; }); } target=sev; mode=id; };
+    function applySev(sv){
+      const mix=(a,b,t)=>a+(b-a)*t, t=sv*.88;
+      lungM.color.setRGB(mix(229,36,t)/255,mix(142,28,t)/255,mix(150,23,t)/255);
+      lungM.roughness=.45+sv*.45;
+      const n=Math.floor(sv*sv*N);
+      for(let i=0;i<N;i++){ const sp=spots[i]; const k=i<n?sp.r:0; v.copy(sp.p); s.set(k,k,k); m.compose(v,q,s); tar.setMatrixAt(i,m); }
+      tar.instanceMatrix.needsUpdate=true;
+    }
+    applySev(0);
+    function size(){ const w=cv.clientWidth,h=cv.clientHeight; if(w&&h){ rnd.setSize(w,h,false); cam.aspect=w/h; cam.updateProjectionMatrix(); } }
+    size(); if('ResizeObserver' in window) new ResizeObserver(size).observe(cv); else addEventListener('resize',size);
+    let t=0;
+    function frame(dt){
+      t+=dt;
+      if(Math.abs(cur-target)>.001){ cur+=(target-cur)*.06; applySev(cur); }
+      // 호흡: 의존도가 높을수록 얕고 불규칙
+      const rate=1.0+cur*1.1, depth=.045*(1-cur*.55), jitter=cur*.012*Math.sin(t*7.3);
+      const b=1+Math.sin(t*rate*2)*depth+jitter;
+      left.scale.set(.72*b,1.12*b,.58*b); right.scale.set(.78*b,1.18*b,.6*b);
+      inner.intensity=1.6*(1-cur*.9)*(.9+Math.sin(t*rate*2)*.1);
+      mote.userData.update(dt); mote.material.opacity=.06+cur*.16;
+      punch=Math.max(0,punch-dt*.8); camZ=8.4-Math.sin(punch*Math.PI)*1.4; // 인물 바꿀 때 펀치인
+      const mv=reduce?0:1;
+      cam.position.set(Math.sin(t*.12)*.6*mv, Math.sin(t*.17)*.25*mv, camZ); cam.lookAt(0,-.1,0);
+      root.rotation.y=Math.sin(t*.35)*.55*mv; root.rotation.x=Math.sin(t*.2)*.08*mv; root.position.y=-.15;
+      rnd.render(sc,cam);
+    }
+    loop(cv,frame);
+  })();
+})();
+})();
+</script>
